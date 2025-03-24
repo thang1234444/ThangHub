@@ -1,5 +1,5 @@
 -- Auto Press E GUI with FPS Boost and Anti-AFK
--- Last updated: 2025-03-24 10:40:32 UTC
+-- Last updated: 2025-03-24 10:49:21 UTC
 -- Created by: thang1234444
 
 -- Services
@@ -17,9 +17,18 @@ local Character = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
 local GuiVisible = true
-
--- FPS Optimization Variables
+local Enabled = false
+local Cooldown = false
+local CooldownTime = 0.1
+local MinCooldown = 0.1
+local MaxCooldown = 3.0
+local ProximityPrompts = {}
+local CurrentPrompt = nil
+local MaxDistance = 12
+local DraggingSlider = false
 local FpsEnabled = false
+
+-- Store original lighting settings
 local OriginalLightingSettings = {
     Brightness = Lighting.Brightness,
     GlobalShadows = Lighting.GlobalShadows,
@@ -28,7 +37,86 @@ local OriginalLightingSettings = {
     FogStart = Lighting.FogStart
 }
 
--- Function to optimize FPS
+-- Function declarations (Define all functions before using them)
+local function updateUI()
+    if not StatusLabel then return end
+    if Enabled then
+        StatusLabel.Text = "Status: ON"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+        ToggleButton.Text = "DISABLE"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
+    else
+        StatusLabel.Text = "Status: OFF"
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        ToggleButton.Text = "ENABLE"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
+    end
+end
+
+local function updateDelay(scale)
+    scale = math.clamp(scale, 0, 1)
+    CooldownTime = MinCooldown + (scale * (MaxCooldown - MinCooldown))
+    CooldownTime = math.floor(CooldownTime * 100) / 100
+    DelayLabel.Text = "Delay: " .. CooldownTime .. "s"
+    SliderFill.Size = UDim2.new(scale, 0, 1, 0)
+    SliderKnob.Position = UDim2.new(scale, -8, 0.5, -8)
+end
+
+local function fireproximityprompt(prompt)
+    if typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") and prompt.Parent then
+        if fireproximityprompt then
+            pcall(function()
+                fireproximityprompt(prompt)
+            end)
+        end
+    end
+end
+
+local function getProximityPrompts()
+    ProximityPrompts = {}
+    
+    if not Character or not Character:IsDescendantOf(workspace) or not Humanoid or Humanoid.Health <= 0 then
+        return
+    end
+    
+    if not RootPart then
+        RootPart = Character:FindFirstChild("HumanoidRootPart")
+        if not RootPart then return end
+    end
+    
+    for _, object in pairs(workspace:GetDescendants()) do
+        if object:IsA("ProximityPrompt") then
+            local objectPosition = object.Parent and object.Parent:IsA("BasePart") and object.Parent.Position
+            if objectPosition then
+                local distance = (objectPosition - RootPart.Position).Magnitude
+                if distance <= MaxDistance then
+                    table.insert(ProximityPrompts, {prompt = object, distance = distance})
+                end
+            end
+        end
+    end
+    
+    table.sort(ProximityPrompts, function(a, b)
+        return a.distance < b.distance
+    end)
+    
+    CurrentPrompt = ProximityPrompts[1] and ProximityPrompts[1].prompt or nil
+end
+
+local function pressE()
+    if Cooldown or not Enabled or not CurrentPrompt then return end
+    
+    Cooldown = true
+    
+    if CurrentPrompt and CurrentPrompt.Parent then
+        fireproximityprompt(CurrentPrompt)
+    end
+    
+    task.delay(CooldownTime, function()
+        Cooldown = false
+    end)
+end
+
 local function optimizeFPS()
     if FpsEnabled then
         -- Optimize lighting
@@ -46,18 +134,10 @@ local function optimizeFPS()
         end
         
         -- Optimize workspace
-        local workspaceSettings = {
-            ["Technology"] = Enum.Technology.Compatibility,
-            ["MeshPartDetailLevel"] = Enum.MeshPartDetailLevel.Level04,
-            ["TerrainDecoration"] = false,
-            ["StreamingEnabled"] = true
-        }
+        workspace.StreamingEnabled = false
+        workspace.TerrainDecoration = false
         
-        for setting, value in pairs(workspaceSettings) do
-            workspace[setting] = value
-        end
-        
-        -- Disable particles and effects in workspace
+        -- Disable particles and effects
         for _, v in pairs(workspace:GetDescendants()) do
             if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
                 v.Enabled = false
@@ -69,23 +149,8 @@ local function optimizeFPS()
         
         -- Set render settings
         settings().Rendering.QualityLevel = 1
-        settings().Rendering.MeshCacheSize = 0
-        settings().Rendering.EagerBulkExecution = true
-        
-        -- Disable other features
         UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
         
-        -- Connect to new parts being added
-        workspace.DescendantAdded:Connect(function(descendant)
-            if FpsEnabled then
-                if descendant:IsA("ParticleEmitter") or descendant:IsA("Fire") or descendant:IsA("Smoke") or descendant:IsA("Sparkles") then
-                    descendant.Enabled = false
-                end
-                if descendant:IsA("BasePart") and not descendant.Parent:FindFirstChild("Humanoid") then
-                    descendant.CastShadow = false
-                end
-            end
-        end)
     else
         -- Restore original lighting settings
         for setting, value in pairs(OriginalLightingSettings) do
@@ -109,11 +174,21 @@ local function optimizeFPS()
     end
 end
 
--- Function to handle character respawn
 local function onCharacterAdded(newCharacter)
     Character = newCharacter
     Humanoid = Character:WaitForChild("Humanoid")
     RootPart = Character:WaitForChild("HumanoidRootPart")
+end
+
+local function toggleGuiVisibility()
+    GuiVisible = not GuiVisible
+    MainFrame.Visible = GuiVisible
+end
+
+local function updateDrag(input)
+    if not isDragging then return end
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
 -- Connect character added event
@@ -153,7 +228,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
         fpsCount = 0
     end
 end)
-
 -- Main Frame
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
@@ -162,12 +236,6 @@ MainFrame.Position = UDim2.new(0.5, -100, 0.7, 0)
 MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
-
--- Function to toggle GUI visibility
-local function toggleGuiVisibility()
-    GuiVisible = not GuiVisible
-    MainFrame.Visible = GuiVisible
-end
 
 -- Hotkey setup for GUI toggle (Ctrl)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -181,11 +249,6 @@ local isDragging = false
 local dragInput
 local dragStart
 local startPos
-
-local function updateDrag(input)
-    local delta = input.Position - dragStart
-    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
 
 MainFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -217,6 +280,7 @@ end)
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = MainFrame
+
 -- Title
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "TitleLabel"
@@ -336,49 +400,12 @@ local ButtonCorner = Instance.new("UICorner")
 ButtonCorner.CornerRadius = UDim.new(0, 6)
 ButtonCorner.Parent = ToggleButton
 
--- Variables for Auto Press E
-local Enabled = false
-local Cooldown = false
-local CooldownTime = 0.1
-local MinCooldown = 0.1
-local MaxCooldown = 3.0
-local ProximityPrompts = {}
-local CurrentPrompt = nil
-local MaxDistance = 12
-local DraggingSlider = false
-
--- Function to update UI
-local function updateUI()
-    if Enabled then
-        StatusLabel.Text = "Status: ON"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-        ToggleButton.Text = "DISABLE"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(76, 175, 80)
-    else
-        StatusLabel.Text = "Status: OFF"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        ToggleButton.Text = "ENABLE"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
-    end
-end
-
--- Function to update delay
-local function updateDelay(scale)
-    scale = math.clamp(scale, 0, 1)
-    CooldownTime = MinCooldown + (scale * (MaxCooldown - MinCooldown))
-    CooldownTime = math.floor(CooldownTime * 100) / 100
-    DelayLabel.Text = "Delay: " .. CooldownTime .. "s"
-    SliderFill.Size = UDim2.new(scale, 0, 1, 0)
-    SliderKnob.Position = UDim2.new(scale, -8, 0.5, -8)
-end
-
--- Toggle button click handler
+-- Connect button events
 ToggleButton.MouseButton1Click:Connect(function()
     Enabled = not Enabled
     updateUI()
 end)
 
--- FPS Button click handler
 FpsButton.MouseButton1Click:Connect(function()
     FpsEnabled = not FpsEnabled
     FpsButton.Text = "FPS BOOST: " .. (FpsEnabled and "ON" or "OFF")
@@ -435,12 +462,6 @@ SliderKnob.InputBegan:Connect(function(input)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-        DraggingSlider = false
-    end
-end)
-
 UserInputService.InputChanged:Connect(function(input)
     if DraggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local mousePos = input.Position.X
@@ -453,53 +474,6 @@ UserInputService.InputChanged:Connect(function(input)
         isDragging = false
     end
 end)
-
--- Function to press E
-local function pressE()
-    if Cooldown or not Enabled or not CurrentPrompt then return end
-    
-    Cooldown = true
-    
-    if CurrentPrompt and CurrentPrompt.Parent then
-        fireproximityprompt(CurrentPrompt)
-    end
-    
-    task.delay(CooldownTime, function()
-        Cooldown = false
-    end)
-end
-
--- Function to get proximity prompts
-local function getProximityPrompts()
-    ProximityPrompts = {}
-    
-    if not Character or not Character:IsDescendantOf(workspace) or not Humanoid or Humanoid.Health <= 0 then
-        return
-    end
-    
-    if not RootPart then
-        RootPart = Character:FindFirstChild("HumanoidRootPart")
-        if not RootPart then return end
-    end
-    
-    for _, object in pairs(workspace:GetDescendants()) do
-        if object:IsA("ProximityPrompt") then
-            local objectPosition = object.Parent and object.Parent:IsA("BasePart") and object.Parent.Position
-            if objectPosition then
-                local distance = (objectPosition - RootPart.Position).Magnitude
-                if distance <= MaxDistance then
-                    table.insert(ProximityPrompts, {prompt = object, distance = distance})
-                end
-            end
-        end
-    end
-    
-    table.sort(ProximityPrompts, function(a, b)
-        return a.distance < b.distance
-    end)
-    
-    CurrentPrompt = ProximityPrompts[1] and ProximityPrompts[1].prompt or nil
-end
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
@@ -519,17 +493,6 @@ RunService.Heartbeat:Connect(function()
     getProximityPrompts()
     pressE()
 end)
-
--- Function to safely execute fireproximityprompt
-local function fireproximityprompt(prompt)
-    if typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") and prompt.Parent then
-        if fireproximityprompt then
-            pcall(function()
-                fireproximityprompt(prompt)
-            end)
-        end
-    end
-end
 
 -- Initialize with default delay
 updateDelay(0.033)
