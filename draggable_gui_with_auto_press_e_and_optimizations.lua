@@ -95,7 +95,13 @@ toggleButtonAFK.TextColor3 = Color3.new(0, 0, 0)
 toggleButtonAFK.Parent = frame
 
 local antiAFKEnabled = false
-local lastMove = tick()
+local virtualUser = game:service'VirtualUser'
+game:service'Players'.LocalPlayer.Idled:connect(function()
+    if antiAFKEnabled then
+        virtualUser:CaptureController()
+        virtualUser:ClickButton2(Vector2.new())
+    end
+end)
 
 toggleButtonAFK.MouseButton1Click:Connect(function()
     antiAFKEnabled = not antiAFKEnabled
@@ -105,17 +111,6 @@ toggleButtonAFK.MouseButton1Click:Connect(function()
     else
         toggleButtonAFK.Text = "Anti AFK: OFF"
         print("Anti AFK disabled") -- Debug print
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    if antiAFKEnabled then
-        if tick() - lastMove > 10 then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            wait(0.1)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
-            lastMove = tick()
-        end
     end
 end)
 
