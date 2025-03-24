@@ -1,6 +1,12 @@
 -- Auto Press E GUI with FPS Boost and Anti-AFK
--- Last updated: 2025-03-24 10:49:21 UTC
+-- Last updated: 2025-03-24 10:54:11 UTC
 -- Created by: thang1234444
+
+-- Prevent multiple executions
+if _G.AutoPressELoaded then
+    return
+end
+_G.AutoPressELoaded = true
 
 -- Services
 local Players = game:GetService("Players")
@@ -9,13 +15,24 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local VirtualUser = game:GetService("VirtualUser")
 local Lighting = game:GetService("Lighting")
-local StarterGui = game:GetService("StarterGui")
 
 -- Variables
 local Player = Players.LocalPlayer
 local Character = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local RootPart = Character:WaitForChild("HumanoidRootPart")
+
+-- GUI Elements (will be populated later)
+local ScreenGui
+local MainFrame
+local StatusLabel
+local DelayLabel
+local SliderFill
+local SliderKnob
+local ToggleButton
+local FpsButton
+
+-- State variables
 local GuiVisible = true
 local Enabled = false
 local Cooldown = false
@@ -27,6 +44,10 @@ local CurrentPrompt = nil
 local MaxDistance = 12
 local DraggingSlider = false
 local FpsEnabled = false
+local isDragging = false
+local dragInput
+local dragStart
+local startPos
 
 -- Store original lighting settings
 local OriginalLightingSettings = {
@@ -37,9 +58,9 @@ local OriginalLightingSettings = {
     FogStart = Lighting.FogStart
 }
 
--- Function declarations (Define all functions before using them)
+-- Function declarations
 local function updateUI()
-    if not StatusLabel then return end
+    if not StatusLabel or not ToggleButton then return end
     if Enabled then
         StatusLabel.Text = "Status: ON"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
@@ -54,6 +75,7 @@ local function updateUI()
 end
 
 local function updateDelay(scale)
+    if not DelayLabel or not SliderFill or not SliderKnob then return end
     scale = math.clamp(scale, 0, 1)
     CooldownTime = MinCooldown + (scale * (MaxCooldown - MinCooldown))
     CooldownTime = math.floor(CooldownTime * 100) / 100
@@ -62,13 +84,59 @@ local function updateDelay(scale)
     SliderKnob.Position = UDim2.new(scale, -8, 0.5, -8)
 end
 
-local function fireproximityprompt(prompt)
-    if typeof(prompt) == "Instance" and prompt:IsA("ProximityPrompt") and prompt.Parent then
-        if fireproximityprompt then
-            pcall(function()
-                fireproximityprompt(prompt)
-            end)
+local function optimizeFPS()
+    if FpsEnabled then
+        -- Optimize lighting
+        Lighting.Brightness = 1
+        Lighting.GlobalShadows = false
+        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+        Lighting.FogEnd = 9e9
+        Lighting.FogStart = 0
+        
+        -- Remove unnecessary effects
+        for _, v in pairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
+                v.Enabled = false
+            end
         end
+        
+        -- Optimize workspace
+        workspace.StreamingEnabled = false
+        workspace.TerrainDecoration = false
+        
+        -- Set render settings
+        settings().Rendering.QualityLevel = 1
+        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
+        
+        -- Disable particles and effects
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+                v.Enabled = false
+            end
+            if v:IsA("BasePart") and not v.Parent:FindFirstChild("Humanoid") then
+                v.CastShadow = false
+            end
+        end
+    else
+        -- Restore original lighting settings
+        for setting, value in pairs(OriginalLightingSettings) do
+            Lighting[setting] = value
+        end
+        
+        -- Re-enable effects
+        for _, v in pairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
+                v.Enabled = true
+            end
+        end
+        
+        -- Restore workspace settings
+        workspace.StreamingEnabled = true
+        workspace.TerrainDecoration = true
+        
+        -- Restore render settings
+        settings().Rendering.QualityLevel = 7
+        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel7
     end
 end
 
@@ -117,61 +185,16 @@ local function pressE()
     end)
 end
 
-local function optimizeFPS()
-    if FpsEnabled then
-        -- Optimize lighting
-        Lighting.Brightness = 1
-        Lighting.GlobalShadows = false
-        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
-        Lighting.FogEnd = 9e9
-        Lighting.FogStart = 0
-        
-        -- Remove unnecessary effects
-        for _, v in pairs(Lighting:GetChildren()) do
-            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
-                v.Enabled = false
-            end
-        end
-        
-        -- Optimize workspace
-        workspace.StreamingEnabled = false
-        workspace.TerrainDecoration = false
-        
-        -- Disable particles and effects
-        for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
-                v.Enabled = false
-            end
-            if v:IsA("BasePart") and not v.Parent:FindFirstChild("Humanoid") then
-                v.CastShadow = false
-            end
-        end
-        
-        -- Set render settings
-        settings().Rendering.QualityLevel = 1
-        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
-        
-    else
-        -- Restore original lighting settings
-        for setting, value in pairs(OriginalLightingSettings) do
-            Lighting[setting] = value
-        end
-        
-        -- Re-enable effects
-        for _, v in pairs(Lighting:GetChildren()) do
-            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
-                v.Enabled = true
-            end
-        end
-        
-        -- Restore workspace settings
-        workspace.StreamingEnabled = true
-        workspace.TerrainDecoration = true
-        
-        -- Restore render settings
-        settings().Rendering.QualityLevel = 7
-        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel7
-    end
+local function updateDrag(input)
+    if not isDragging or not MainFrame then return end
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+local function toggleGuiVisibility()
+    if not MainFrame then return end
+    GuiVisible = not GuiVisible
+    MainFrame.Visible = GuiVisible
 end
 
 local function onCharacterAdded(newCharacter)
@@ -180,298 +203,275 @@ local function onCharacterAdded(newCharacter)
     RootPart = Character:WaitForChild("HumanoidRootPart")
 end
 
-local function toggleGuiVisibility()
-    GuiVisible = not GuiVisible
-    MainFrame.Visible = GuiVisible
-end
-
-local function updateDrag(input)
-    if not isDragging then return end
-    local delta = input.Position - dragStart
-    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
 -- Connect character added event
 Player.CharacterAdded:Connect(onCharacterAdded)
-
--- GUI Setup
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoPressEGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = Player.PlayerGui
-
--- Add FPS Counter
-local FpsLabel = Instance.new("TextLabel")
-FpsLabel.Name = "FpsLabel"
-FpsLabel.Size = UDim2.new(0, 150, 0, 25)
-FpsLabel.Position = UDim2.new(0, 10, 0, 10)
-FpsLabel.BackgroundTransparency = 1
-FpsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-FpsLabel.TextSize = 14
-FpsLabel.Font = Enum.Font.SourceSans
-FpsLabel.TextXAlignment = Enum.TextXAlignment.Left
-FpsLabel.Parent = ScreenGui
-
--- FPS Counter update
-local fps = 0
-local fpsSum = 0
-local fpsCount = 0
-
-RunService.RenderStepped:Connect(function(deltaTime)
-    fpsSum = fpsSum + (1 / deltaTime)
-    fpsCount = fpsCount + 1
+-- Create GUI
+local function createGui()
+    -- ScreenGui
+    ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "AutoPressEGui"
+    ScreenGui.ResetOnSpawn = false
     
-    if fpsCount >= 10 then
-        fps = math.floor(fpsSum / fpsCount)
-        FpsLabel.Text = "FPS: " .. tostring(fps)
-        fpsSum = 0
-        fpsCount = 0
+    -- Try to parent to CoreGui first
+    local success, _ = pcall(function()
+        ScreenGui.Parent = game:GetService("CoreGui")
+    end)
+    
+    -- If failed, parent to PlayerGui
+    if not success then
+        ScreenGui.Parent = Player.PlayerGui
     end
-end)
--- Main Frame
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 200, 0, 170)
-MainFrame.Position = UDim2.new(0.5, -100, 0.7, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-MainFrame.BorderSizePixel = 0
-MainFrame.Parent = ScreenGui
 
--- Hotkey setup for GUI toggle (Ctrl)
+    -- Add FPS Counter
+    local FpsLabel = Instance.new("TextLabel")
+    FpsLabel.Name = "FpsLabel"
+    FpsLabel.Size = UDim2.new(0, 150, 0, 25)
+    FpsLabel.Position = UDim2.new(0, 10, 0, 10)
+    FpsLabel.BackgroundTransparency = 1
+    FpsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    FpsLabel.TextSize = 14
+    FpsLabel.Font = Enum.Font.SourceSans
+    FpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    FpsLabel.Parent = ScreenGui
+
+    -- FPS Counter update
+    local fps = 0
+    local fpsSum = 0
+    local fpsCount = 0
+
+    RunService.RenderStepped:Connect(function(deltaTime)
+        fpsSum = fpsSum + (1 / deltaTime)
+        fpsCount = fpsCount + 1
+        
+        if fpsCount >= 10 then
+            fps = math.floor(fpsSum / fpsCount)
+            FpsLabel.Text = "FPS: " .. tostring(fps)
+            fpsSum = 0
+            fpsCount = 0
+        end
+    end)
+
+    -- Main Frame
+    MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 200, 0, 170)
+    MainFrame.Position = UDim2.new(0.5, -100, 0.7, 0)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Parent = ScreenGui
+
+    -- Round the corners
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 8)
+    UICorner.Parent = MainFrame
+
+    -- Title
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Name = "TitleLabel"
+    TitleLabel.Size = UDim2.new(1, 0, 0, 30)
+    TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    TitleLabel.BorderSizePixel = 0
+    TitleLabel.Text = "Auto Press E"
+    TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TitleLabel.TextSize = 18
+    TitleLabel.Font = Enum.Font.SourceSansBold
+    TitleLabel.Parent = MainFrame
+
+    -- Round the corners of the title
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 8)
+    TitleCorner.Parent = TitleLabel
+
+    -- Status Label
+    StatusLabel = Instance.new("TextLabel")
+    StatusLabel.Name = "StatusLabel"
+    StatusLabel.Size = UDim2.new(1, 0, 0, 25)
+    StatusLabel.Position = UDim2.new(0, 0, 0.25, 0)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Text = "Status: OFF"
+    StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    StatusLabel.TextSize = 16
+    StatusLabel.Font = Enum.Font.SourceSans
+    StatusLabel.Parent = MainFrame
+
+    -- Delay Slider Label
+    DelayLabel = Instance.new("TextLabel")
+    DelayLabel.Name = "DelayLabel"
+    DelayLabel.Size = UDim2.new(1, 0, 0, 20)
+    DelayLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    DelayLabel.BackgroundTransparency = 1
+    DelayLabel.Text = "Delay: 0.1s"
+    DelayLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DelayLabel.TextSize = 14
+    DelayLabel.Font = Enum.Font.SourceSans
+    DelayLabel.Parent = MainFrame
+
+    -- Slider Background
+    local SliderBackground = Instance.new("Frame")
+    SliderBackground.Name = "SliderBackground"
+    SliderBackground.Size = UDim2.new(0.8, 0, 0, 6)
+    SliderBackground.Position = UDim2.new(0.1, 0, 0.5, 0)
+    SliderBackground.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    SliderBackground.BorderSizePixel = 0
+    SliderBackground.Parent = MainFrame
+
+    -- Round the corners of the slider background
+    local SliderBackgroundCorner = Instance.new("UICorner")
+    SliderBackgroundCorner.CornerRadius = UDim.new(0, 3)
+    SliderBackgroundCorner.Parent = SliderBackground
+
+    -- Slider Fill
+    SliderFill = Instance.new("Frame")
+    SliderFill.Name = "SliderFill"
+    SliderFill.Size = UDim2.new(0.033, 0, 1, 0)
+    SliderFill.Position = UDim2.new(0, 0, 0, 0)
+    SliderFill.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBackground
+
+    -- Round the corners of the slider fill
+    local SliderFillCorner = Instance.new("UICorner")
+    SliderFillCorner.CornerRadius = UDim.new(0, 3)
+    SliderFillCorner.Parent = SliderFill
+
+    -- Slider Knob
+    SliderKnob = Instance.new("Frame")
+    SliderKnob.Name = "SliderKnob"
+    SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+    SliderKnob.Position = UDim2.new(0.033, -8, 0.5, -8)
+    SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    SliderKnob.BorderSizePixel = 0
+    SliderKnob.Parent = SliderBackground
+
+    -- Round the knob
+    local SliderKnobCorner = Instance.new("UICorner")
+    SliderKnobCorner.CornerRadius = UDim.new(1, 0)
+    SliderKnobCorner.Parent = SliderKnob
+
+    -- FPS Boost Button
+    FpsButton = Instance.new("TextButton")
+    FpsButton.Name = "FpsButton"
+    FpsButton.Size = UDim2.new(0.7, 0, 0, 25)
+    FpsButton.Position = UDim2.new(0.15, 0, 0.6, 0)
+    FpsButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
+    FpsButton.BorderSizePixel = 0
+    FpsButton.Text = "FPS BOOST: OFF"
+    FpsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    FpsButton.TextSize = 14
+    FpsButton.Font = Enum.Font.SourceSansBold
+    FpsButton.Parent = MainFrame
+
+    -- Round the corners of the FPS button
+    local FpsButtonCorner = Instance.new("UICorner")
+    FpsButtonCorner.CornerRadius = UDim.new(0, 6)
+    FpsButtonCorner.Parent = FpsButton
+
+    -- Toggle Button
+    ToggleButton = Instance.new("TextButton")
+    ToggleButton.Name = "ToggleButton"
+    ToggleButton.Size = UDim2.new(0.7, 0, 0, 30)
+    ToggleButton.Position = UDim2.new(0.15, 0, 0.75, 0)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
+    ToggleButton.BorderSizePixel = 0
+    ToggleButton.Text = "ENABLE"
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.TextSize = 16
+    ToggleButton.Font = Enum.Font.SourceSansBold
+    ToggleButton.Parent = MainFrame
+
+    -- Round the corners of the button
+    local ButtonCorner = Instance.new("UICorner")
+    ButtonCorner.CornerRadius = UDim.new(0, 6)
+    ButtonCorner.Parent = ToggleButton
+
+    -- Setup dragging
+    MainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    isDragging = false
+                end
+            end)
+        end
+    end)
+
+    MainFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    -- Connect button events
+    ToggleButton.MouseButton1Click:Connect(function()
+        Enabled = not Enabled
+        updateUI()
+    end)
+
+    FpsButton.MouseButton1Click:Connect(function()
+        FpsEnabled = not FpsEnabled
+        FpsButton.Text = "FPS BOOST: " .. (FpsEnabled and "ON" or "OFF")
+        FpsButton.BackgroundColor3 = FpsEnabled and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(230, 76, 76)
+        optimizeFPS()
+    end)
+
+    -- Slider events
+    SliderBackground.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            DraggingSlider = true
+            local mousePos = input.Position.X
+            local sliderPos = SliderBackground.AbsolutePosition.X
+            local sliderSize = SliderBackground.AbsoluteSize.X
+            local scale = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
+            updateDelay(scale)
+        end
+    end)
+
+    SliderBackground.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            DraggingSlider = false
+        end
+    end)
+
+    SliderBackground.InputChanged:Connect(function(input)
+        if DraggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local mousePos = input.Position.X
+            local sliderPos = SliderBackground.AbsolutePosition.X
+            local sliderSize = SliderBackground.AbsoluteSize.X
+            local scale = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
+            updateDelay(scale)
+        end
+    end)
+
+    -- Button hover effects
+    ToggleButton.MouseEnter:Connect(function()
+        TweenService:Create(ToggleButton, TweenInfo.new(0.3), {BackgroundColor3 = Enabled and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(255, 100, 100)}):Play()
+    end)
+
+    ToggleButton.MouseLeave:Connect(function()
+        TweenService:Create(ToggleButton, TweenInfo.new(0.3), {BackgroundColor3 = Enabled and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(230, 76, 76)}):Play()
+    end)
+
+    -- Initialize with default delay
+    updateDelay(0.033)
+end
+
+-- Create GUI
+createGui()
+
+-- Setup input handlers
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and (input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl) then
         toggleGuiVisibility()
     end
 end)
 
--- Make frame draggable
-local isDragging = false
-local dragInput
-local dragStart
-local startPos
-
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                isDragging = false
-            end
-        end)
-    end
-end)
-
-MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and isDragging then
         updateDrag(input)
-    end
-end)
-
--- Round the corners
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = MainFrame
-
--- Title
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Name = "TitleLabel"
-TitleLabel.Size = UDim2.new(1, 0, 0, 30)
-TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-TitleLabel.BorderSizePixel = 0
-TitleLabel.Text = "Auto Press E"
-TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-TitleLabel.TextSize = 18
-TitleLabel.Font = Enum.Font.SourceSansBold
-TitleLabel.Parent = MainFrame
-
--- Round the corners of the title
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 8)
-TitleCorner.Parent = TitleLabel
-
--- Status Label
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Name = "StatusLabel"
-StatusLabel.Size = UDim2.new(1, 0, 0, 25)
-StatusLabel.Position = UDim2.new(0, 0, 0.25, 0)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Status: OFF"
-StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-StatusLabel.TextSize = 16
-StatusLabel.Font = Enum.Font.SourceSans
-StatusLabel.Parent = MainFrame
-
--- Delay Slider Label
-local DelayLabel = Instance.new("TextLabel")
-DelayLabel.Name = "DelayLabel"
-DelayLabel.Size = UDim2.new(1, 0, 0, 20)
-DelayLabel.Position = UDim2.new(0, 0, 0.4, 0)
-DelayLabel.BackgroundTransparency = 1
-DelayLabel.Text = "Delay: 0.1s"
-DelayLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-DelayLabel.TextSize = 14
-DelayLabel.Font = Enum.Font.SourceSans
-DelayLabel.Parent = MainFrame
-
--- Slider Background
-local SliderBackground = Instance.new("Frame")
-SliderBackground.Name = "SliderBackground"
-SliderBackground.Size = UDim2.new(0.8, 0, 0, 6)
-SliderBackground.Position = UDim2.new(0.1, 0, 0.5, 0)
-SliderBackground.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-SliderBackground.BorderSizePixel = 0
-SliderBackground.Parent = MainFrame
-
--- Round the corners of the slider background
-local SliderBackgroundCorner = Instance.new("UICorner")
-SliderBackgroundCorner.CornerRadius = UDim.new(0, 3)
-SliderBackgroundCorner.Parent = SliderBackground
-
--- Slider Fill
-local SliderFill = Instance.new("Frame")
-SliderFill.Name = "SliderFill"
-SliderFill.Size = UDim2.new(0.033, 0, 1, 0)
-SliderFill.Position = UDim2.new(0, 0, 0, 0)
-SliderFill.BackgroundColor3 = Color3.fromRGB(0, 162, 255)
-SliderFill.BorderSizePixel = 0
-SliderFill.Parent = SliderBackground
-
--- Round the corners of the slider fill
-local SliderFillCorner = Instance.new("UICorner")
-SliderFillCorner.CornerRadius = UDim.new(0, 3)
-SliderFillCorner.Parent = SliderFill
-
--- Slider Knob
-local SliderKnob = Instance.new("Frame")
-SliderKnob.Name = "SliderKnob"
-SliderKnob.Size = UDim2.new(0, 16, 0, 16)
-SliderKnob.Position = UDim2.new(0.033, -8, 0.5, -8)
-SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-SliderKnob.BorderSizePixel = 0
-SliderKnob.Parent = SliderBackground
-
--- Round the knob
-local SliderKnobCorner = Instance.new("UICorner")
-SliderKnobCorner.CornerRadius = UDim.new(1, 0)
-SliderKnobCorner.Parent = SliderKnob
-
--- FPS Boost Button
-local FpsButton = Instance.new("TextButton")
-FpsButton.Name = "FpsButton"
-FpsButton.Size = UDim2.new(0.7, 0, 0, 25)
-FpsButton.Position = UDim2.new(0.15, 0, 0.6, 0)
-FpsButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
-FpsButton.BorderSizePixel = 0
-FpsButton.Text = "FPS BOOST: OFF"
-FpsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-FpsButton.TextSize = 14
-FpsButton.Font = Enum.Font.SourceSansBold
-FpsButton.Parent = MainFrame
-
--- Round the corners of the FPS button
-local FpsButtonCorner = Instance.new("UICorner")
-FpsButtonCorner.CornerRadius = UDim.new(0, 6)
-FpsButtonCorner.Parent = FpsButton
-
--- Toggle Button
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Name = "ToggleButton"
-ToggleButton.Size = UDim2.new(0.7, 0, 0, 30)
-ToggleButton.Position = UDim2.new(0.15, 0, 0.75, 0)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(230, 76, 76)
-ToggleButton.BorderSizePixel = 0
-ToggleButton.Text = "ENABLE"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.TextSize = 16
-ToggleButton.Font = Enum.Font.SourceSansBold
-ToggleButton.Parent = MainFrame
-
--- Round the corners of the button
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 6)
-ButtonCorner.Parent = ToggleButton
-
--- Connect button events
-ToggleButton.MouseButton1Click:Connect(function()
-    Enabled = not Enabled
-    updateUI()
-end)
-
-FpsButton.MouseButton1Click:Connect(function()
-    FpsEnabled = not FpsEnabled
-    FpsButton.Text = "FPS BOOST: " .. (FpsEnabled and "ON" or "OFF")
-    FpsButton.BackgroundColor3 = FpsEnabled and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(230, 76, 76)
-    optimizeFPS()
-end)
-
--- Button hover effects
-ToggleButton.MouseEnter:Connect(function()
-    TweenService:Create(ToggleButton, TweenInfo.new(0.3), {BackgroundColor3 = Enabled and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(255, 100, 100)}):Play()
-end)
-
-ToggleButton.MouseLeave:Connect(function()
-    TweenService:Create(ToggleButton, TweenInfo.new(0.3), {BackgroundColor3 = Enabled and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(230, 76, 76)}):Play()
-end)
-
-FpsButton.MouseEnter:Connect(function()
-    TweenService:Create(FpsButton, TweenInfo.new(0.3), {BackgroundColor3 = FpsEnabled and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(255, 100, 100)}):Play()
-end)
-
-FpsButton.MouseLeave:Connect(function()
-    TweenService:Create(FpsButton, TweenInfo.new(0.3), {BackgroundColor3 = FpsEnabled and Color3.fromRGB(76, 175, 80) or Color3.fromRGB(230, 76, 76)}):Play()
-end)
-
--- Slider dragging handlers
-SliderBackground.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                DraggingSlider = false
-            end
-        end)
-        
-        DraggingSlider = true
-        
-        local mousePos = input.Position.X
-        local sliderPos = SliderBackground.AbsolutePosition.X
-        local sliderSize = SliderBackground.AbsoluteSize.X
-        
-        local scale = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
-        updateDelay(scale)
-    end
-end)
-
-SliderKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                DraggingSlider = false
-            end
-        end)
-        
-        DraggingSlider = true
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if DraggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local mousePos = input.Position.X
-        local sliderPos = SliderBackground.AbsolutePosition.X
-        local sliderSize = SliderBackground.AbsoluteSize.X
-        
-        local scale = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
-        updateDelay(scale)
-        
-        isDragging = false
     end
 end)
 
@@ -493,9 +493,6 @@ RunService.Heartbeat:Connect(function()
     getProximityPrompts()
     pressE()
 end)
-
--- Initialize with default delay
-updateDelay(0.033)
 
 -- Hidden Anti-AFK functionality
 Player.Idled:Connect(function()
