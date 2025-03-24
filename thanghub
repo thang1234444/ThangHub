@@ -1,5 +1,5 @@
--- Auto Press E GUI with FPS Boost and Anti-AFK
--- Last updated: 2025-03-24 10:54:11 UTC
+-- Auto Press E GUI with Advanced FPS Boost and Anti-AFK
+-- Last updated: 2025-03-24 11:03:01 UTC
 -- Created by: thang1234444
 
 -- Prevent multiple executions
@@ -55,7 +55,11 @@ local OriginalLightingSettings = {
     GlobalShadows = Lighting.GlobalShadows,
     Ambient = Lighting.Ambient,
     FogEnd = Lighting.FogEnd,
-    FogStart = Lighting.FogStart
+    FogStart = Lighting.FogStart,
+    ExposureCompensation = Lighting.ExposureCompensation,
+    ShadowSoftness = Lighting.ShadowSoftness,
+    EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+    EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale
 }
 
 -- Function declarations
@@ -92,31 +96,132 @@ local function optimizeFPS()
         Lighting.Ambient = Color3.fromRGB(178, 178, 178)
         Lighting.FogEnd = 9e9
         Lighting.FogStart = 0
+        Lighting.ExposureCompensation = -0.5
+        Lighting.ShadowSoftness = 0
+        Lighting.EnvironmentDiffuseScale = 0
+        Lighting.EnvironmentSpecularScale = 0
         
         -- Remove unnecessary effects
         for _, v in pairs(Lighting:GetChildren()) do
-            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
+            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or 
+               v:IsA("ColorCorrectionEffect") or v:IsA("DepthOfFieldEffect") or
+               v:IsA("Atmosphere") then
                 v.Enabled = false
             end
         end
         
         -- Optimize workspace
-        workspace.StreamingEnabled = false
-        workspace.TerrainDecoration = false
+        local workspaceSettings = {
+            ["Technology"] = Enum.Technology.Compatibility,
+            ["MeshPartDetailLevel"] = Enum.MeshPartDetailLevel.Level04,
+            ["TerrainDecoration"] = false,
+            ["StreamingEnabled"] = false,
+            ["PhysicsThrottleEnabled"] = true,
+            ["InterpolationThrottling"] = Enum.InterpolationThrottlingMode.Disabled,
+            ["ModelStreamingMode"] = Enum.ModelStreamingMode.Nonatomic
+        }
         
-        -- Set render settings
+        for setting, value in pairs(workspaceSettings) do
+            pcall(function()
+                workspace[setting] = value
+            end)
+        end
+        
+        -- Optimize render settings
         settings().Rendering.QualityLevel = 1
-        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
+        settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level04
+        settings().Rendering.EagerBulkExecution = true
+        settings().Rendering.AutoFRMLevel = true
+        settings().Rendering.GraphicsMode = 2
+        settings().Rendering.MeshCacheSize = 0
+        settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Enabled
+        settings().Physics.ThrottleAdjustTime = 0.1
         
-        -- Disable particles and effects
+        -- Game settings
+        UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel1
+        UserSettings():GetService("UserGameSettings").GraphicsQualityLevel = 1
+        UserSettings():GetService("UserGameSettings").AutoFRMLevel = 60
+        
+        -- Disable textures and effects in workspace
         for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or v:IsA("Sparkles") then
+            if v:IsA("ParticleEmitter") or v:IsA("Fire") or v:IsA("Smoke") or 
+               v:IsA("Sparkles") or v:IsA("Trail") then
                 v.Enabled = false
             end
-            if v:IsA("BasePart") and not v.Parent:FindFirstChild("Humanoid") then
-                v.CastShadow = false
+            if v:IsA("BasePart") then
+                if not v.Parent:FindFirstChild("Humanoid") then
+                    v.CastShadow = false
+                    v.Material = Enum.Material.SmoothPlastic
+                    -- Reduce texture memory usage
+                    if v:IsA("MeshPart") then
+                        v.RenderFidelity = Enum.RenderFidelity.Performance
+                        v.TextureID = ""
+                    end
+                    if v:IsA("UnionOperation") then
+                        v.UsePartColor = true
+                    end
+                end
+            end
+            if v:IsA("Decal") or v:IsA("Texture") then
+                v.Transparency = 1
             end
         end
+        
+        -- Optimize character models
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        part.Material = Enum.Material.SmoothPlastic
+                        part.Reflectance = 0
+                    end
+                    if part:IsA("Decal") and part.Name ~= "face" then
+                        part.Transparency = 1
+                    end
+                    if part:IsA("ParticleEmitter") or part:IsA("Trail") then
+                        part.Enabled = false
+                    end
+                end
+            end
+        end
+        
+        -- Connect to new parts being added
+        workspace.DescendantAdded:Connect(function(descendant)
+            if not FpsEnabled then return end
+            
+            if descendant:IsA("ParticleEmitter") or descendant:IsA("Fire") or 
+               descendant:IsA("Smoke") or descendant:IsA("Trail") or
+               descendant:IsA("Sparkles") then
+                descendant.Enabled = false
+            end
+            if descendant:IsA("BasePart") and not descendant.Parent:FindFirstChild("Humanoid") then
+                descendant.CastShadow = false
+                descendant.Material = Enum.Material.SmoothPlastic
+                if descendant:IsA("MeshPart") then
+                    descendant.RenderFidelity = Enum.RenderFidelity.Performance
+                    descendant.TextureID = ""
+                end
+            end
+            if descendant:IsA("Decal") or descendant:IsA("Texture") then
+                descendant.Transparency = 1
+            end
+        end)
+        
+        -- Setup memory cleanup
+        game:GetService("RunService").Stepped:Connect(function()
+            if not FpsEnabled then return end
+            
+            -- Clear texture memory
+            game:GetService("ContentProvider"):PreloadAsync({})
+            
+            -- Clear particle effects
+            for _, v in pairs(workspace:GetDescendants()) do
+                if v:IsA("ParticleEmitter") then
+                    v:Clear()
+                end
+            end
+        end)
+        
     else
         -- Restore original lighting settings
         for setting, value in pairs(OriginalLightingSettings) do
@@ -125,7 +230,9 @@ local function optimizeFPS()
         
         -- Re-enable effects
         for _, v in pairs(Lighting:GetChildren()) do
-            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or v:IsA("ColorCorrectionEffect") then
+            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect") or v:IsA("BloomEffect") or 
+               v:IsA("ColorCorrectionEffect") or v:IsA("DepthOfFieldEffect") or
+               v:IsA("Atmosphere") then
                 v.Enabled = true
             end
         end
@@ -136,10 +243,21 @@ local function optimizeFPS()
         
         -- Restore render settings
         settings().Rendering.QualityLevel = 7
+        settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Level01
         UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.QualityLevel7
+        UserSettings():GetService("UserGameSettings").GraphicsQualityLevel = 7
+        
+        -- Restore textures and effects
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CastShadow = true
+                if v:IsA("MeshPart") then
+                    v.RenderFidelity = Enum.RenderFidelity.Precise
+                end
+            end
+        end
     end
 end
-
 local function getProximityPrompts()
     ProximityPrompts = {}
     
@@ -203,8 +321,6 @@ local function onCharacterAdded(newCharacter)
     RootPart = Character:WaitForChild("HumanoidRootPart")
 end
 
--- Connect character added event
-Player.CharacterAdded:Connect(onCharacterAdded)
 -- Create GUI
 local function createGui()
     -- ScreenGui
@@ -461,6 +577,9 @@ end
 
 -- Create GUI
 createGui()
+
+-- Connect character added event
+Player.CharacterAdded:Connect(onCharacterAdded)
 
 -- Setup input handlers
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
